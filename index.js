@@ -13,7 +13,10 @@ var express = require("express" ),
 	https = require( 'https' ),
 	mime = require( 'mime' ),
 	colors = require( 'colors' );
-var config = JSON.parse(fs.readFileSync('./server.config.json', "utf8" ).toString());
+
+
+
+var config = JSON.parse(fs.readFileSync('./server/server.config.json', "utf8" ).toString());
 port = config.port;
 var app  = express();
 app.set('port', port);
@@ -25,49 +28,31 @@ http.createServer(app).listen(app.get('port'), function(){
 
 
 
+
 app.use(function(req, res, next){
 	'use strict';
-
 	var uri = url.parse( req.url ).pathname;
 	for (var i = 0 ; i < config.proxies.length; i++){
 		var proxiRegex = new RegExp( config.proxies[i].source );
 		if ( proxiRegex.test( uri ) ) {
+			console.log(uri);
 			proxiServ( req, res, config.proxies[i], new Date().getTime() );
 			return;
 		}
 	}
 	next();
 });
-app.use(function(req, res, next){
-	'use strict';
-	const timeWhait = getRandomInt(1, 10);
-	var uri = url.parse( req.url ).pathname;
-
-	/**
-	 * Для рандомного таймаута
-	 */
-	/*setTimeout(function(){
-		_use(req, res);
-	}, timeWhait);*/
-	_use(req, res);
-	//console.log(colors.yellow( timeWhait + 'ms ->  ') + colors.gray(uri) );
 
 
-});
-
-
-
-
-//var server = new http.Server();
+app.use(main);
 var timer = timerFoo();
-
 function timerFoo(){
 	return setTimeout(function(){
 		console.log('=======================+++++++++++++++++++++=========================='.gray)
 	},1000 );
 };
 
-function _use ( request, response ) {
+function main (request, response ) {
 	clearTimeout(timer);
 	timer = timerFoo();
 
@@ -78,23 +63,7 @@ function _use ( request, response ) {
 		console.log( 'Error access'.red );
 		return;
 	}
-	/*var proxiRegex = new RegExp( proxi.source );
-	if ( proxiRegex.test( uri ) ) {
-		proxiServ( request, response, new Date().getTime() );
-		return;
-	}*/
 	var t0 = new Date().getTime();
-
-	/**
-	 * получение емаила
-	 */
-	if(/^\/mail$/.test(uri)){
-		response.end( 'Ololo@mail.ru' );
-		return;
-
-	}
-
-
 	sendFileSave( url.parse( request.url ).pathname, response, t0 );
 }
 
@@ -125,20 +94,62 @@ function sendFileSave( filePath, res, timeLong ) {
 		res.end( 'Bad request' );
 		return;
 	}
-	filePath = path.join( process.cwd(), filePath );
-	fs.stat( filePath, function ( err, status ) {
-		if ( err || !status.isFile() ) {
-			res.statusCode = 404;
-			res.end( 'File not found1' );
-			console.log(('File not found ' +filePath).red);
-			return;
+	const rootPath  = deepCopy(config.rootPath);
+
+	console.log('filePath ->', filePath)
+
+	zz();
+	function zz() {
+		if(rootPath.length){
+
+			const _path = path.join( process.cwd() + '/'+rootPath.splice(0,1)[0], filePath );
+
+			console.log('_path->',_path)
+
+			isStat(_path)
+				.then(filePath=>{
+					const file = new fs.ReadStream( filePath );
+					sendFile( file, filePath, res, timeLong );
+				})
+				.catch(obj=>{
+					if(rootPath.length){
+						zz()
+					}else{
+						console.log(obj.message, obj.error);
+						res.statusCode = 404;
+						res.end( obj.message )
+					}
+				});
 		}
-		var file = new fs.ReadStream( filePath )
-		sendFile( file, filePath, res, timeLong );
-
-	} );
-
+	}
 }
+
+
+function isStat(filePath) {
+	return new Promise((resolve, reject)=>{
+		fs.stat( filePath, function ( err, status ) {
+			if(err){
+				reject({
+					error: err,
+					statusCode: 404,
+					message: 'File not found1'
+				});
+			}else if(status.isDirectory()){
+				filePath += '/index.html';
+				return isStat(filePath);
+			}else if(!status.isFile()){
+				reject({
+					error: err,
+					statusCode: 404,
+					message: 'File not found2'
+				});
+			}
+			resolve(filePath);
+
+		} );
+	})
+}
+
 
 function sendFile( file, filename, res, timeLong ) {
 	'use strict';
@@ -151,10 +162,16 @@ function sendFile( file, filename, res, timeLong ) {
 	}
 	if ( contentType ) {
 		headers["Content-Type"] = contentType;
+
+		if(contentType.match(/^video/)){
+
+			return videSend(...arguments)
+		}
+
+		console.log('Content-Type ->', contentType)
 	}
 	res.writeHead( 200, headers );
 	file.pipe( res );
-
 	file.on( 'error', function ( err ) {
 		res.statuscode = 500;
 		res.end( 'Server error' );
@@ -172,6 +189,14 @@ function sendFile( file, filename, res, timeLong ) {
 
 
 }
+
+function videSend( file, filename, res, timeLong) {
+	res.sendFile(filename);
+	var resTime = new Date().getTime() - timeLong + 'ms';
+	console.log( filename + " : " + resTime );
+	return null;
+}
+
 
 function proxiServ( request, response, _options, timeLong ) {
 	'use strict';
@@ -225,5 +250,16 @@ function proxiServ( request, response, _options, timeLong ) {
 function getRandomInt(min, max){
 	return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+function deepCopy (oldObj) {
+	var newObj = oldObj;
+	if (oldObj && typeof oldObj === "object") {
+		newObj = Object.prototype.toString.call(oldObj) === "[object Array]" ? [] : {};
+		for (var i in oldObj) {
+			newObj[i] = deepCopy(oldObj[i]);
+		}
+	}
+	return newObj;
+};
+
 
 //server.listen( port );
