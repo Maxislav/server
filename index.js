@@ -16,7 +16,7 @@ var express = require("express" ),
 
 
 
-var config = JSON.parse(fs.readFileSync('./server/server.config.json', "utf8" ).toString());
+var config = JSON.parse(fs.readFileSync(__dirname +'/server.config.json', "utf8" ).toString());
 port = config.port;
 var app  = express();
 app.set('port', port);
